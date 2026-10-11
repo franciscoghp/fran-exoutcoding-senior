@@ -31,6 +31,12 @@ export class MakesService {
 	}
 	
     public async getMakes(paginationInput?: PaginationInput, actualize?: boolean): Promise<{ total: number, items: MakeDto[] }> {
+        // Read-only mode (e.g. serverless deploy): never call the NHTSA API on a request,
+        // the data is loaded beforehand with `npm run sync`.
+        if (this.configService.get("MAKES_SYNC_ENABLED") === "false") {
+            return this.getMakesFromDb(paginationInput);
+        }
+
         const lastActualizationAt = await this.databaseService.actualization.findFirst({
             select: { date: true },
             orderBy: { date: 'desc' },
@@ -76,8 +82,27 @@ export class MakesService {
 		return this.makeServiceUtils.parseMakesXmlResponse(res.data);
 	}
 
+	// The NHTSA API answers 403 when it receives too many requests at once: retry with a growing delay
+	private async fetchTypesWithRetry(makeId: number, attempts = 4) {
+		const url = `https://vpic.nhtsa.dot.gov/api/vehicles/GetVehicleTypesForMakeId/${makeId}?format=XML`;
+		for (let attempt = 1; ; attempt++) {
+			try {
+				return await axios.get<string>(url);
+			} catch (error) {
+				if (attempt >= attempts) throw error;
+				await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+			}
+		}
+	}
+
 	private async getVehiclesTypes(makes: ParsedMake[]): Promise<MakeDto[]> {
 		const makesResponses: MakeDto[] = [];
+		// Allows resuming an interrupted sync: skip makes that are already stored
+		if (this.configService.get("MAKES_SYNC_SKIP_EXISTING") === "true") {
+			const existing = await this.databaseService.make.findMany({ select: { makeId: true } });
+			const stored = new Set(existing.map(m => m.makeId));
+			makes = makes.filter(m => !stored.has(m.makeId));
+		}
 		console.log('total items', makes.length)
 		const chunks = this.utilsService.createChunks(makes, this.configService.get("MAKES_API_CHUNK_SIZE") ?? 1000);
 		console.log('total chunks', chunks?.length)
@@ -88,7 +113,7 @@ export class MakesService {
 		for (const chunk of chunks) {
 
 			const fetchResponse = await Promise.allSettled(
-				chunk.map(make => axios.get<string>(`https://vpic.nhtsa.dot.gov/api/vehicles/GetVehicleTypesForMakeId/${make.makeId}?format=XML`))
+				chunk.map(make => this.fetchTypesWithRetry(make.makeId))
 			);
 
 			for (const response of fetchResponse) {

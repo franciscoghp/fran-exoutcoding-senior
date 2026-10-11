@@ -23,7 +23,7 @@ Create a .env file in the root of the project and add the necessary environment 
 
 ```bash
 MAKES_API_CHUNK_SIZE=1000
-DATABASE_URL=mongodb+srv://franciscoghp:franciscoghp@cluster0.vojgy.mongodb.net/db_challenge
+DATABASE_URL=mongodb+srv://USER:PASSWORD@HOST/exoutcoding
 ```
 
 ### Step 3: Run the Project with Docker Compose

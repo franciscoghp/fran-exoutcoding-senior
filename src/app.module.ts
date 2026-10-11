@@ -1,4 +1,5 @@
 import { ApolloDriver, ApolloDriverConfig } from "@nestjs/apollo";
+import { ApolloServerPluginLandingPageLocalDefault } from "@apollo/server/plugin/landingPage/default";
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { GraphQLModule } from "@nestjs/graphql";
@@ -12,11 +13,15 @@ import { UtilsModule } from "./utils/utils.module";
 		ConfigModule.forRoot({ isGlobal: true }),
 		DatabaseModule,
 		GraphQLModule.forRoot<ApolloDriverConfig>({
-			definitions: {
-				path: join(process.cwd(), "src/graphql/generated.ts"),
-			},
+			// The typings file is generated at startup; the filesystem is read-only on Vercel
+			definitions: process.env.VERCEL
+				? undefined
+				: { path: join(process.cwd(), "src/graphql/generated.ts") },
 			driver: ApolloDriver,
-			typePaths: ["./**/*.graphql"],
+			typePaths: process.env.VERCEL ? ["./src/makes/schema/*.graphql"] : ["./**/*.graphql"],
+			introspection: true,
+			playground: false,
+			plugins: [ApolloServerPluginLandingPageLocalDefault({ embed: true })],
 		}),
 		MakesModule,
 		UtilsModule,
